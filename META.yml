@@ -1,0 +1,13 @@
+name: HTTP-Server-Simple-Mason
+version: 0.01
+abstract: A simple mason server
+author: Jesse Vincent <jesse@bestpractical.com>
+license: perl
+distribution_type: module
+requires:
+  HTTP::Server::Simple: 0
+  HTML::Mason: 1.25
+no_index:
+  directory:
+    - inc
+generated_by: Module::Install version 0.36
