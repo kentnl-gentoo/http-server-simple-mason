@@ -1,5 +1,5 @@
 name: HTTP-Server-Simple-Mason
-version: 0.01
+version: 0.02
 abstract: A simple mason server
 author: Jesse Vincent <jesse@bestpractical.com>
 license: perl
