@@ -1,16 +1,11 @@
 package HTTP::Server::Simple::Mason;
 use base qw/HTTP::Server::Simple::CGI/;
 use strict;
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 NAME
 
 HTTP::Server::Simple::Mason - An abstract baseclass for a standalone mason server
-
-
-=head1 VERSION
-
-This document describes HTTP::Server:Simple::Mason version 0.02
 
 
 =head1 SYNOPSIS
@@ -23,12 +18,9 @@ This document describes HTTP::Server:Simple::Mason version 0.02
 	package MyApp::Server;
 	use base qw/HTTP::Server::Simple::Mason/;
 	
-	sub handler_config {
-	    my $self = shift;
-	    return ( $self->SUPER::handler_config, comp_root => '/tmp/mason-pages' );
+	sub mason_config {
+	    return ( comp_root => '/tmp/mason-pages' );
 	}
-
-    1;
 
 =head1 DESCRIPTION
 
@@ -52,6 +44,12 @@ wrap 'HTML::Mason::FakeApache::send_http_header', pre => sub {
     print STDOUT "HTTP/1.0 $status\n";
 };
 
+=head2 mason_handler 
+
+Returns the server's C<HTML::Mason::CGIHandler> object.  The first time
+this method is called, it creates a new handler by calling C<new_handler>.
+
+=cut
 
 sub mason_handler {
     my $self = shift;
@@ -85,9 +83,34 @@ sub handle_request {
     eval { my $m = $self->mason_handler;
 
         $m->handle_cgi_object($cgi) };
+
+    if ($@) {
+	$self->handle_error($@);
+    } 
 }
 
+=head2 handle_error ERROR
 
+If the call to C<handle_request> dies, C<handle_error> is called with the
+exception (that is, C<$@>).  By default, it does nothing; it can be overriden
+by your subclass.
+
+=cut
+
+sub handle_error {
+    my $self = shift;
+
+    return;
+} 
+
+=head2 new_handler
+
+Creates and returns a new C<HTML::Mason::CGIHandler>, with configuration
+specified by the C<default_mason_config> and C<mason_config> methods.
+You don't need to call this method yourself; C<mason_handler> will automatically
+call it the first time it is called.
+
+=cut
 
 sub new_handler {
     my $self    = shift;
@@ -136,7 +159,8 @@ sub new_handler {
 
 =head2 mason_config
 
-Subclass-defined mason handler configuration
+Returns a subclass-defined mason handler configuration; you almost certainly want to override it
+and specify at least C<comp_root>.
 
 =cut
 
@@ -146,7 +170,7 @@ sub mason_config {
 
 =head2 default_mason_config
 
-Default mason handler configuration
+Returns the default mason handler configuration (which can be overridden by entries in C<mason_config>).
 
 =cut
 
@@ -211,11 +235,12 @@ sub escape_uri {
 For most configuration, see L<HTTP::Server::Simple>.
 
 You can (and must) configure your mason CGI handler by subclassing this module and overriding
-the subroutine 'handler_config'. It's most important that you set a component root (where your pages live)
+the subroutine C<mason_config>. It's most important that you set a component root (where your pages live)
 by adding 
 
     comp_root => '/some/absolute/path'
 
+See the Synopsis section or C<ex/sample_server.pl> in the distribution for a complete example.
 
 
 =head1 DEPENDENCIES
