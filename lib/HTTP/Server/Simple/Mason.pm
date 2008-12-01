@@ -1,7 +1,7 @@
 package HTTP::Server::Simple::Mason;
 use base qw/HTTP::Server::Simple::CGI/;
 use strict;
-our $VERSION = '0.09';
+our $VERSION = '0.11';
 
 =head1 NAME
 
@@ -141,7 +141,12 @@ sub new_handler {
 
             if ($r->content_type =~ /charset=([\w-]+)$/ ) {
                 my $enc = $1;
-                binmode *STDOUT, ":encoding($enc)";
+                if (lc($enc) =~ /^utf-?8$/) {
+                    binmode *STDOUT, ':utf8'; # faster than :encoding
+                }
+                else {
+                    binmode *STDOUT, ":encoding($enc)";
+                }
             }
             # We could perhaps install a new, faster out_method here that
             # wouldn't have to keep checking whether headers have been

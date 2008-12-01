@@ -1,5 +1,6 @@
 use Test::More;
 BEGIN {
+    delete @ENV{ qw( http_proxy HTTP_PROXY ) };
     if (eval { require LWP::Simple }) {
 	plan tests => 5;
     } else {
@@ -25,9 +26,9 @@ package MyApp::Server;
 use base qw/HTTP::Server::Simple::Mason/;
 use File::Spec;
 
+use File::Temp qw/tempdir/;
 sub mason_config {
-    my $root = File::Spec->catdir(File::Spec->tmpdir, "mason-pages-$$");
-    mkdir( $root ) or die $!;
+    my $root = tempdir( CLEANUP => 1 );
     open (PAGE, '>', File::Spec->catfile($root, 'index.html')) or die $!;
     print PAGE '<%1+1%>';
     close (PAGE);
