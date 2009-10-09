@@ -1,7 +1,7 @@
 package HTTP::Server::Simple::Mason;
 use base qw/HTTP::Server::Simple::CGI/;
 use strict;
-our $VERSION = '0.12';
+our $VERSION = '0.13';
 
 =head1 NAME
 
@@ -38,8 +38,14 @@ use HTML::Mason::FakeApache;
 
 use Hook::LexWrap;
 
+our $http_header_sent = 0;
+
 wrap 'HTML::Mason::FakeApache::send_http_header', pre => sub {
     my $r = shift;
+
+    $http_header_sent = 1;
+    return if $r->http_header_sent;
+
     my $status = $r->header_out('Status') || '200 H::S::Mason OK';
     print STDOUT "HTTP/1.0 $status\n";
 };
@@ -63,30 +69,87 @@ Called with a CGI object. Invokes mason and runs the request
 
 =cut
 
+my %status_phrase = (
+    '100' => 'Continue',
+    '101' => 'Switching Protocols',
+    '200' => 'OK',
+    '201' => 'Created',
+    '202' => 'Accepted',
+    '203' => 'Non-Authoritative Information',
+    '204' => 'No Content',
+    '205' => 'Reset Content',
+    '206' => 'Partial Content',
+    '300' => 'Multiple Choices',
+    '301' => 'Moved Permanently',
+    '302' => 'Found',
+    '303' => 'See Other',
+    '304' => 'Not Modified',
+    '305' => 'Use Proxy',
+    '307' => 'Temporary Redirect',
+    '400' => 'Bad Request',
+    '401' => 'Unauthorized',
+    '402' => 'Payment Required',
+    '403' => 'Forbidden',
+    '404' => 'Not Found',
+    '405' => 'Method Not Allowed',
+    '406' => 'Not Acceptable',
+    '407' => 'Proxy Authentication Required',
+    '408' => 'Request Time-out',
+    '409' => 'Conflict',
+    '410' => 'Gone',
+    '411' => 'Length Required',
+    '412' => 'Precondition Failed',
+    '413' => 'Request Entity Too Large',
+    '414' => 'Request-URI Too Large',
+    '415' => 'Unsupported Media Type',
+    '416' => 'Requested range not satisfiable',
+    '417' => 'Expectation Failed',
+    '500' => 'Internal Server Error',
+    '501' => 'Not Implemented',
+    '502' => 'Bad Gateway',
+    '503' => 'Service Unavailable',
+    '504' => 'Gateway Time-out',
+    '505' => 'HTTP Version not supported',
+);
+
 sub handle_request {
     my $self = shift;
     my $cgi  = shift;
 
-    if (
-        ( !$self->mason_handler->interp->comp_exists( $cgi->path_info ) )
-        && (
-            $self->mason_handler->interp->comp_exists(
-                $cgi->path_info . "/index.html"
-            )
-        )
-      )
-    {
-        $cgi->path_info( $cgi->path_info . "/index.html" );
+    local $http_header_sent = 0;
+
+    my $m = $self->mason_handler;
+    unless ( $m->interp->comp_exists( $cgi->path_info ) ) {
+        my $path = $cgi->path_info;
+        $path .= '/' unless $path =~ m{/$};
+        $path .= 'index.html';
+        $cgi->path_info( $path )
+            if $m->interp->comp_exists( $path );
     }
 
-    eval { my $m = $self->mason_handler;
+    local $@;
+    my $status = eval { $m->handle_cgi_object($cgi) };
+    if ( my $error = $@ ) {
+        return $self->handle_error($error);
+    }
 
-        $m->handle_cgi_object($cgi) };
+    if ( $status && $http_header_sent ) {
+        warn "Request has been aborted or declined with status '$status'"
+            .", but it's too late as HTTP headers has been sent already"
+            unless $status =~ /^200(?:\s|$)/;
+    } elsif ( !$http_header_sent ) {
+        # we didn't send anything
+        # at this moment we can not use $m->cgi_request->send_headers
 
-    if ($@) {
-        my $error = $@;
-        $self->handle_error($error);
-    } 
+        $status ||= 204; # No Content
+        my ($code, $reason) = split /\s/, $status, 2;
+        $reason ||= $status_phrase{ $status } || 'No reason';
+        print STDOUT "HTTP/1.0 $status $reason\r\n";
+        print STDOUT "Content-Type: text/html; charset='UTF-8'\r\n";
+        print STDOUT "\r\n";
+        print STDOUT "$code: $reason\n";
+    }
+    return;
 }
 
 =head2 handle_error ERROR
@@ -114,30 +177,30 @@ call it the first time it is called.
 
 sub new_handler {
     my $self    = shift;
-    
+
     my $handler_class = $self->handler_class;
 
     my $handler = $handler_class->new(
         $self->default_mason_config,
         $self->mason_config,
-   # Override mason's default output method so 
-   # we can change the binmode to our encoding if
-   # we happen to be handed character data instead
-   # of binary data.
-   # 
-   # Cloned from HTML::Mason::CGIHandler
-    out_method => 
-      sub {
-            my $m = HTML::Mason::Request->instance;
-            my $r = $m->cgi_request;
-            # Send headers if they have not been sent by us or by user.
+        # Override mason's default output method so 
+        # we can change the binmode to our encoding if
+        # we happen to be handed character data instead
+        # of binary data.
+        #
+        # Cloned from HTML::Mason::CGIHandler
+        out_method => sub {
             # We use instance here because if we store $request we get a
             # circular reference and a big memory leak.
-                unless ($r->http_header_sent) {
-                       $r->send_http_header();
-                }
-            {
-            $r->content_type || $r->content_type('text/html; charset=utf-8'); # Set up a default
+            my $m = HTML::Mason::Request->instance;
+            my $r = $m->cgi_request;
+
+            # Send headers if they have not been sent by us or by user.
+            $r->send_http_header unless $r->http_header_sent;
+
+            # Set up a default
+            $r->content_type('text/html; charset=utf-8')
+                unless $r->content_type;
 
             if ($r->content_type =~ /charset=([\w-]+)$/ ) {
                 my $enc = $1;
@@ -152,8 +215,7 @@ sub new_handler {
             # wouldn't have to keep checking whether headers have been
             # sent and what the $r->method is.  That would require
             # additions to the Request interface, though.
-             print STDOUT grep {defined} @_;
-            }
+            print STDOUT grep {defined} @_;
         },
         @_,
     );
