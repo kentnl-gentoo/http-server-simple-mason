@@ -1,7 +1,7 @@
 package HTTP::Server::Simple::Mason;
 use base qw/HTTP::Server::Simple::CGI/;
 use strict;
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 =head1 NAME
 
@@ -202,15 +202,26 @@ sub new_handler {
             $r->content_type('text/html; charset=utf-8')
                 unless $r->content_type;
 
-            if ($r->content_type =~ /charset=([\w-]+)$/ ) {
+            if ( $r->content_type =~ /charset=([\w-]+)$/ ) {
                 my $enc = $1;
-                if (lc($enc) =~ /^utf-?8$/) {
-                    binmode *STDOUT, ':utf8'; # faster than :encoding
-                }
-                else {
-                    binmode *STDOUT, ":encoding($enc)";
+                if ( lc $enc !~ /utf-?8$/ ) {
+                    for my $str (@_) {
+                        next unless $str;
+
+                        # only encode perl internal strings
+                        next unless utf8::is_utf8($str);
+                        $str = Encode::encode( $enc, $str );
+                    }
                 }
             }
+
+            # default to utf8 encoding
+            for my $str (@_) {
+                next unless $str;
+                next unless utf8::is_utf8($str);
+                $str = Encode::encode( 'utf8', $str );
+            }
+
             # We could perhaps install a new, faster out_method here that
             # wouldn't have to keep checking whether headers have been
             # sent and what the $r->method is.  That would require
